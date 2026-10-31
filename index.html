@@ -35,18 +35,19 @@ function resize(){
   if(state==='ready')bird.y=H*0.45;
 }
 
-/* ================= SOUND SYSTEM (Web Audio, no files) ================= */
+/* ================= SOUND SYSTEM =================
+   bg.mp3        -> looping background music (HTMLAudio)
+   gameover.mp3  -> game-over sound, plays once (HTMLAudio)
+   jump / score  -> original arcade sounds made with the Web Audio API
+   One mute flag controls everything. */
 const Snd=(()=>{
-  let ac=null,master=null,sfx=null,bus=null,timer=null,nextT=0,step=0,muted=false,noiseBuf=null;
+  let ac=null,master=null,muted=false,primed=false,musicWanted=false;
   try{muted=localStorage.getItem('ashborn_flappy_muted')==='1'}catch(e){}
 
-  const SP=60/138/2;                       // one eighth note at 138 BPM
-  const MEL=[12,null,16,null,14,12,9,null, // 4 bars, 8 steps each (semitones from C4)
-             7,null,9,12,9,null,7,null,
-             4,null,7,null,9,7,4,null,
-             2,4,7,9,12,null,null,null];
-  const BASS=[-12,-15,-19,-17];            // C, Am, F, G
-  const hz=n=>261.63*Math.pow(2,n/12);
+  const bg=new Audio('bg.mp3');
+  bg.loop=true;bg.preload='auto';bg.volume=.5;bg.muted=muted;
+  const over=new Audio('gameover.mp3');
+  over.preload='auto';over.volume=1;over.muted=muted;
 
   function init(){
     if(ac)return true;
@@ -55,136 +56,101 @@ const Snd=(()=>{
       if(!AC)return false;
       ac=new AC();
       master=ac.createGain();master.gain.value=muted?0:1;master.connect(ac.destination);
-      sfx=ac.createGain();sfx.gain.value=.9;sfx.connect(master);
-      const n=(ac.sampleRate*.25)|0;
-      noiseBuf=ac.createBuffer(1,n,ac.sampleRate);
-      const d=noiseBuf.getChannelData(0);
-      for(let i=0;i<n;i++)d[i]=Math.random()*2-1;
-      // silent buffer: fully unlocks audio on iOS/Android
-      const s=ac.createBufferSource();
+      const s=ac.createBufferSource();           // silent buffer: fully unlocks audio on mobile
       s.buffer=ac.createBuffer(1,1,22050);s.connect(ac.destination);s.start(0);
       return true;
     }catch(e){ac=null;return false}
   }
+  // Prime the game-over file once during the first tap, so Android lets it play later without a tap.
+  function prime(){
+    if(primed)return;
+    primed=true;
+    try{
+      over.muted=true;
+      const p=over.play();
+      if(p&&p.then){
+        p.then(()=>{over.pause();over.currentTime=0;over.muted=muted})
+         .catch(()=>{over.muted=muted;primed=false});
+      }else{over.pause();over.muted=muted}
+    }catch(e){over.muted=muted;primed=false}
+  }
   function unlock(){
-    if(!init())return;
-    if(ac.state!=='running'){
+    init();
+    if(ac&&ac.state!=='running'){
       try{const p=ac.resume();if(p&&p.catch)p.catch(()=>{})}catch(e){}
     }
+    prime();
   }
-  function tone(dest,type,f,at,dur,vol,f2){
+  function tone(type,f,at,dur,vol,f2){
     const o=ac.createOscillator(),g=ac.createGain();
     o.type=type;o.frequency.setValueAtTime(f,at);
     if(f2)o.frequency.exponentialRampToValueAtTime(f2,at+dur);
     g.gain.setValueAtTime(0.0001,at);
     g.gain.exponentialRampToValueAtTime(vol,at+0.008);
     g.gain.exponentialRampToValueAtTime(0.0001,at+dur);
-    o.connect(g);g.connect(dest);o.start(at);o.stop(at+dur+0.03);
-  }
-  function noise(dest,at,dur,vol,hp){
-    const s=ac.createBufferSource();s.buffer=noiseBuf;
-    const f=ac.createBiquadFilter();f.type='highpass';f.frequency.value=hp;
-    const g=ac.createGain();
-    g.gain.setValueAtTime(vol,at);g.gain.exponentialRampToValueAtTime(0.0001,at+dur);
-    s.connect(f);f.connect(g);g.connect(dest);s.start(at);s.stop(at+dur+0.02);
+    o.connect(g);g.connect(master);o.start(at);o.stop(at+dur+0.03);
   }
 
-  /* ----- background music ----- */
-  function playStep(i,at){
-    const b=bus;if(!b)return;
-    const m=MEL[i];
-    if(m!=null)tone(b,'square',hz(m),at,SP*1.6,.06);
-    if(i%2===0){
-      const root=BASS[(i>>3)&3];
-      tone(b,'triangle',hz(root+((i%4===2)?12:0)),at,SP*1.7,.2);
-    }
-    if(i%4===0)tone(b,'sine',150,at,.12,.35,45);
-    if(i%2===1)noise(b,at,.04,.05,6000);
-  }
-  function sched(){
-    if(!ac||!bus)return;
-    if(nextT<ac.currentTime-0.05)nextT=ac.currentTime+0.05;
-    while(nextT<ac.currentTime+0.18){
-      playStep(step%32,nextT);nextT+=SP;step++;
-    }
-  }
-  function stopMusic(){
-    if(timer){clearInterval(timer);timer=null}
-    if(bus&&ac){
-      const old=bus;bus=null;
-      try{
-        old.gain.cancelScheduledValues(ac.currentTime);
-        old.gain.setTargetAtTime(0,ac.currentTime,0.005);
-      }catch(e){}
-      setTimeout(()=>{try{old.disconnect()}catch(e){}},200);
-    }
-  }
+  /* ----- music (bg.mp3) ----- */
   function startMusic(){
     unlock();
-    if(!ac)return;
-    stopMusic();
-    bus=ac.createGain();bus.gain.value=.5;bus.connect(master);
-    step=0;nextT=ac.currentTime+0.06;
-    timer=setInterval(sched,40);
-    sched();
+    musicWanted=true;
+    try{over.pause();over.currentTime=0}catch(e){}
+    try{
+      bg.currentTime=0;
+      const p=bg.play();
+      if(p&&p.catch)p.catch(()=>{});
+    }catch(e){}
+  }
+  function stopMusic(){
+    musicWanted=false;
+    try{bg.pause();bg.currentTime=0}catch(e){}
   }
 
-  /* ----- sound effects ----- */
+  /* ----- game over (gameover.mp3, once) ----- */
+  function gameOver(){
+    try{
+      over.muted=muted;
+      over.currentTime=0;
+      const p=over.play();
+      if(p&&p.catch)p.catch(()=>{});
+    }catch(e){}
+  }
+
+  /* ----- original arcade effects (Web Audio) ----- */
   function flapSfx(){
     if(!ac||muted)return;
     const at=ac.currentTime;
-    tone(sfx,'triangle',380,at,.09,.28,820);
+    tone('square',330,at,.11,.12,760);        // quick rising "boing" chirp
+    tone('triangle',660,at,.09,.10,1200);
   }
   function scoreSfx(){
     if(!ac||muted)return;
     const at=ac.currentTime;
-    tone(sfx,'square',988,at,.07,.16);
-    tone(sfx,'square',1319,at+.07,.16,.16);
-  }
-  function gameOverSfx(){
-    if(!ac||muted)return;
-    const at=ac.currentTime;
-    // bonk
-    tone(sfx,'sine',240,at,.14,.55,55);
-    noise(sfx,at,.06,.18,1200);
-    // sad-trombone "wah wah wah waaaah"
-    const lp=ac.createBiquadFilter();lp.type='lowpass';lp.Q.value=4;
-    lp.frequency.setValueAtTime(1500,at+.12);
-    lp.frequency.exponentialRampToValueAtTime(300,at+1.8);
-    lp.connect(sfx);
-    const seq=[[392,.12],[370,.34],[349,.56]];
-    for(const [f,o] of seq){
-      tone(lp,'sawtooth',f,at+o,.2,.2,f*.97);
-    }
-    const o=ac.createOscillator(),g=ac.createGain();
-    o.type='sawtooth';
-    o.frequency.setValueAtTime(330,at+.78);
-    o.frequency.exponentialRampToValueAtTime(110,at+1.75);
-    const lfo=ac.createOscillator(),lg=ac.createGain();
-    lfo.frequency.value=6;lg.gain.value=9;lfo.connect(lg);lg.connect(o.frequency);
-    g.gain.setValueAtTime(0.0001,at+.78);
-    g.gain.exponentialRampToValueAtTime(.22,at+.82);
-    g.gain.exponentialRampToValueAtTime(0.0001,at+1.8);
-    o.connect(g);g.connect(lp);
-    o.start(at+.78);o.stop(at+1.85);lfo.start(at+.78);lfo.stop(at+1.85);
+    tone('square',988,at,.07,.14);            // two-note coin "ding"
+    tone('square',1319,at+.07,.16,.14);
   }
 
-  /* ----- mute toggle ----- */
+  /* ----- mute / unmute everything ----- */
   function toggle(){
     unlock();
     muted=!muted;
     try{localStorage.setItem('ashborn_flappy_muted',muted?'1':'0')}catch(e){}
+    bg.muted=muted;over.muted=muted;
     if(master&&ac)master.gain.setTargetAtTime(muted?0:1,ac.currentTime,0.02);
     return muted;
   }
+  // pause when the tab/app is hidden, resume when it comes back
   function onVisibility(){
-    if(!ac)return;
-    try{
-      if(document.hidden){ac.suspend()}
-      else{const p=ac.resume();if(p&&p.catch)p.catch(()=>{})}
-    }catch(e){}
+    if(document.hidden){
+      try{bg.pause()}catch(e){}
+      try{if(ac)ac.suspend()}catch(e){}
+    }else{
+      try{if(ac){const p=ac.resume();if(p&&p.catch)p.catch(()=>{})}}catch(e){}
+      if(musicWanted){try{const p=bg.play();if(p&&p.catch)p.catch(()=>{})}catch(e){}}
+    }
   }
-  return {unlock,startMusic,stopMusic,flap:flapSfx,score:scoreSfx,gameOver:gameOverSfx,
+  return {unlock,startMusic,stopMusic,flap:flapSfx,score:scoreSfx,gameOver,
           toggle,isMuted:()=>muted,onVisibility};
 })();
 
@@ -364,7 +330,7 @@ function drawBird(){
   ctx.restore();
 }
 
-/* ---------- sound ON/OFF button ---------- */
+/* ---------- mute / unmute button ---------- */
 const BTN={x:W-46,y:14,w:34,h:34};
 function inBtn(wx,wy){
   const p=8;
@@ -433,8 +399,7 @@ function render(){
 }
 
 /* ---------- input & loop ---------- */
-// Audio must be created/resumed inside a user gesture on Android Chrome.
-// Touch "user activation" is granted on pointerup/touchend/click, so unlock on all of them.
+// Mobile browsers only allow audio after a user gesture, so unlock on every kind of first touch.
 ['pointerdown','pointerup','touchend','click','keydown'].forEach(ev=>
   window.addEventListener(ev,()=>Snd.unlock(),{passive:true}));
 document.addEventListener('visibilitychange',Snd.onVisibility);
