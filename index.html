@@ -1,1 +1,209 @@
 
+<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ashborn Flappy - Modi Edition</title>
+<style>
+*{box-sizing:border-box}
+body{
+margin:0;overflow:hidden;
+font-family:Arial;
+background:#70c5ce;
+}
+canvas{display:block}
+#score{
+position:absolute;top:20px;width:100%;
+text-align:center;color:white;
+font-size:30px;font-weight:bold;
+text-shadow:2px 2px #333;
+pointer-events:none;
+}
+#msg{
+position:absolute;top:40%;width:100%;
+text-align:center;color:white;
+font-size:25px;font-weight:bold;
+text-shadow:2px 2px #333;
+pointer-events:none;
+}
+</style>
+</head>
+<body>
+
+<div id="score">ASHBORN FLAPPY 🪷<br>0</div>
+<div id="msg">MODI EDITION<br><br>TAP TO START</div>
+
+<canvas id="game"></canvas>
+
+<script>
+const c=document.getElementById("game");
+const ctx=c.getContext("2d");
+const msg=document.getElementById("msg");
+const scoreBox=document.getElementById("score");
+
+let W,H,bird,pipes,score,running=false;
+let gap=175;
+
+function resize(){
+W=c.width=innerWidth;
+H=c.height=innerHeight;
+}
+resize();
+onresize=resize;
+
+function start(){
+bird={x:W*.25,y:H*.45,v:0};
+pipes=[];
+score=0;
+running=true;
+msg.style.display="none";
+scoreBox.innerHTML="ASHBORN FLAPPY 🪷<br>0";
+}
+
+function flap(){
+if(!running){
+start();
+return;
+}
+bird.v=-7;
+}
+
+c.addEventListener("pointerdown",flap);
+
+function drawBackground(){
+ctx.fillStyle="#78c9df";
+ctx.fillRect(0,0,W,H);
+
+// Saffron sky
+ctx.fillStyle="#ff9933";
+ctx.fillRect(0,0,W,H*.18);
+
+// Green ground
+ctx.fillStyle="#138808";
+ctx.fillRect(0,H-30,W,30);
+
+// Clouds
+ctx.fillStyle="white";
+for(let i=0;i<4;i++){
+let x=(i*150+50)%W;
+ctx.beginPath();
+ctx.arc(x,130,22,0,7);
+ctx.arc(x+25,115,30,0,7);
+ctx.arc(x+55,130,22,0,7);
+ctx.fill();
+}
+}
+
+function drawModi(){
+let x=bird.x,y=bird.y;
+
+// Saffron kurta
+ctx.fillStyle="#ff9933";
+ctx.beginPath();
+ctx.ellipse(x,y+8,19,22,0,0,7);
+ctx.fill();
+
+// Face
+ctx.fillStyle="#e8b58b";
+ctx.beginPath();
+ctx.arc(x,y-15,17,0,7);
+ctx.fill();
+
+// White hair
+ctx.fillStyle="#eee";
+ctx.beginPath();
+ctx.arc(x,y-25,15,Math.PI,0);
+ctx.fill();
+
+// White beard
+ctx.fillStyle="#fff";
+ctx.beginPath();
+ctx.arc(x,y-9,13,0,Math.PI);
+ctx.fill();
+
+// Eyes
+ctx.fillStyle="#222";
+ctx.fillRect(x-7,y-17,3,3);
+ctx.fillRect(x+5,y-17,3,3);
+
+// Nose
+ctx.fillStyle="#d99b70";
+ctx.fillRect(x-2,y-12,4,7);
+}
+
+function drawLotus(x,y){
+ctx.fillStyle="#138808";
+ctx.fillRect(x,0,55,y);
+ctx.fillRect(x,y+gap,55,H);
+
+ctx.fillStyle="#ff9933";
+ctx.fillRect(x-5,y-20,65,20);
+ctx.fillRect(x-5,y+gap,65,20);
+
+// Lotus decoration
+ctx.fillStyle="#ff69b4";
+for(let i=0;i<5;i++){
+ctx.beginPath();
+ctx.ellipse(x+27,y+gap/2,7,18,i*.6,0,7);
+ctx.fill();
+}
+}
+
+function gameOver(){
+running=false;
+msg.innerHTML="GAME OVER 🪷<br>Score: "+score+
+"<br><br>TAP TO RESTART";
+msg.style.display="block";
+}
+
+function update(){
+if(!running)return;
+
+bird.v+=.35;
+bird.y+=bird.v;
+
+if(pipes.length===0||
+pipes[pipes.length-1].x<W-220){
+let top=Math.random()*(H-gap-180)+80;
+pipes.push({x:W,y:top,passed:false});
+}
+
+pipes.forEach(p=>{
+p.x-=3;
+
+if(!p.passed&&p.x+55<bird.x){
+p.passed=true;
+score++;
+scoreBox.innerHTML="ASHBORN FLAPPY 🪷<br>"+score;
+}
+
+if(bird.x+15>p.x&&bird.x-15<p.x+55&&
+(bird.y-15<p.y||bird.y+15>p.y+gap)){
+gameOver();
+}
+});
+
+pipes=pipes.filter(p=>p.x>-70);
+
+if(bird.y>H-30||bird.y<0)gameOver();
+}
+
+function draw(){
+drawBackground();
+
+pipes.forEach(p=>drawLotus(p.x,p.y));
+
+if(bird)drawModi();
+}
+
+function loop(){
+update();
+draw();
+requestAnimationFrame(loop);
+}
+
+loop();
+</script>
+</body>
+</html>
+
